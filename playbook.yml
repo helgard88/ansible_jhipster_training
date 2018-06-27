@@ -1,0 +1,139 @@
+---
+- hosts: vagrant
+  sudo: yes
+  vars:
+    http_port: 80
+    max_clients: 200
+  remote_user: root
+  tasks:
+  - name: update and upgrade
+    apt:
+      update_cache: yes
+      upgrade: yes
+  - name: install list of packages
+    apt: name={{ item }} state=present
+    with_items:
+       - mc
+       - mlocate
+       - htop
+       - lynx
+
+
+  - name: add postgresql key
+    apt_key: 
+      url: https://www.postgresql.org/media/keys/ACCC4CF8.asc 
+      state: present
+  - name: add postgresql repo
+    apt_repository: 
+      repo: 'deb https://apt.postgresql.org/pub/repos/apt/ xenial-pgdg main'
+      state: present
+      filename: 'postgresql'
+      update_cache: yes
+  - name: install postgresql
+    apt:
+      name: postgresql-client-9.6
+      state: present
+
+
+  - name: add java repo
+    apt_repository: 
+      repo: ppa:webupd8team/java
+      update_cache: yes
+  - name: accept java 8 license
+    debconf: 
+      name: oracle-java8-installer 
+      question: 'shared/accepted-oracle-license-v1-1' 
+      value: 'true' 
+      vtype: 'select'
+  - name: install java
+    apt:
+      name: oracle-java8-installer
+      state: present
+  - name: check java version
+    shell: /usr/bin/java -version
+    register: java_result
+  - name: print java version
+    debug:
+      var: java_result
+
+
+  - name: ensure apache is at the latest version
+    apt:
+      name: apache2
+      state: latest
+  - name: enable apache modules
+    apache2_module: name={{ item }} state=present
+    with_items:
+       - proxy
+       - rewrite
+       - proxy_http
+       - proxy_ajp
+  - name: copy a new 000-default.conf file into place
+    copy:
+      src: 000-default.conf
+      dest: /etc/apache2/sites-available/000-default.conf
+      owner: root
+      group: root
+      mode: 0644
+      backup: yes
+  - name: copy a new ports.conf file into place
+    copy:
+      src: ports.conf
+      dest: /etc/apache2/ports.conf
+      owner: root
+      group: root
+      mode: 0644
+      backup: yes
+    notify:
+    - restart apache
+  - name: ensure apache is running (and enable it at boot)
+    service:
+      name: apache2
+      state: started
+      enabled: yes
+
+
+  - name: install tomcat8
+    apt: name={{ item }} state=present install_recommends=no
+    with_items:
+       - tomcat8
+       - libtcnative-1
+       - tomcat8-admin
+       - libcommons-dbcp-java
+       - libcommons-pool-java
+       - authbind
+  - name: copy a new server.xml file into place
+    copy:
+      src: server.xml
+      dest: /etc/tomcat8/server.xml
+      owner: root
+      group: tomcat8
+      mode: 0640
+      backup: yes
+  - name: copy a new tomcat-users.xml file into place
+    copy:
+      src: tomcat-users.xml
+      dest: /etc/tomcat8/tomcat-users.xml
+      owner: root
+      group: tomcat8
+      mode: 0640
+      backup: yes
+  - name: edit JAVA_OPTS
+    lineinfile:
+      path: /etc/default/tomcat8
+      regexp: '^JAVA_OPTS=.*'
+      line: 'JAVA_OPTS="-Djava.awt.headless=true -Dspring.profiles.active=devint -Xmx1536m -XX:+UseConcMarkSweepGC"'
+    notify:
+    - restart tomcat
+
+       
+  handlers:
+    - name: restart apache
+      service:
+        name: apache2
+        state: restarted
+    
+    - name: restart tomcat
+      service:
+        name: tomcat8
+        state: restarted
